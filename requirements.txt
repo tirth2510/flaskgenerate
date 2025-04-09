@@ -1,0 +1,8 @@
+Flask
+pdfplumber
+python-docx
+Werkzeug
+google-generativeai
+fpdf
+firebase-admin
+gunicorn

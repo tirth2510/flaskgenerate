@@ -1,4 +1,6 @@
 import os
+import json
+import base64
 from flask import Flask, request, send_file, jsonify
 import pdfplumber
 import docx
@@ -13,7 +15,14 @@ genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
 model = genai.GenerativeModel("models/gemini-1.5-pro")
 
 # Firebase initialization
-cred = credentials.Certificate('../aiquizgenerator-b8817-firebase-adminsdk-bml1x-9a92c0b273.json')  # Replace with the path to your Firebase credentials
+firebase_creds_b64 = os.environ.get("FIREBASE_CREDENTIALS_JSON")
+if not firebase_creds_b64:
+    raise ValueError("FIREBASE_CREDENTIALS_JSON not set in environment")
+
+decoded_json = base64.b64decode(firebase_creds_b64)
+firebase_creds = json.loads(decoded_json)
+
+cred = credentials.Certificate(firebase_creds)
 initialize_app(cred)
 db = firestore.client()
 
