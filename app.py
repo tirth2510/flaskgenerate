@@ -9,12 +9,18 @@ import google.generativeai as genai
 from fpdf import FPDF
 from firebase_admin import credentials, firestore, initialize_app
 
-# Set your API key
+# -----------------------------
+# Google Generative AI setup
+# -----------------------------
 os.environ["GOOGLE_API_KEY"] = "AIzaSyDcJXT-_qs1wOKFuDUOvwSbjSy_phRbiYc"
 genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
-model = genai.GenerativeModel("models/gemini-1.5-pro")
 
+# Use the correct model name
+model = genai.GenerativeModel("gemini-1.5-pro-latest")
+
+# -----------------------------
 # Firebase initialization
+# -----------------------------
 firebase_creds_b64 = os.environ.get("FIREBASE_CREDENTIALS_JSON")
 if not firebase_creds_b64:
     raise ValueError("FIREBASE_CREDENTIALS_JSON not set in environment")
@@ -26,17 +32,20 @@ cred = credentials.Certificate(firebase_creds)
 initialize_app(cred)
 db = firestore.client()
 
+# -----------------------------
+# Flask setup
+# -----------------------------
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads/'
 app.config['RESULTS_FOLDER'] = 'results/'
 app.config['ALLOWED_EXTENSIONS'] = {'pdf', 'txt', 'docx'}
 
-if not os.path.exists(app.config['UPLOAD_FOLDER']):
-    os.makedirs(app.config['UPLOAD_FOLDER'])
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs(app.config['RESULTS_FOLDER'], exist_ok=True)
 
-if not os.path.exists(app.config['RESULTS_FOLDER']):
-    os.makedirs(app.config['RESULTS_FOLDER'])
-
+# -----------------------------
+# Helper Functions
+# -----------------------------
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
@@ -56,7 +65,9 @@ def extract_text_from_file(file_path):
             return f.read()
     return None
 
-
+# -----------------------------
+# API Endpoints
+# -----------------------------
 @app.route('/generate_explanation', methods=['POST'])
 def generate_explanation():
     try:
@@ -75,14 +86,11 @@ def generate_explanation():
 
         print(f"🔹 Prompt Sent to AI: {prompt}")
 
-        # Create a model instance
-        model = genai.GenerativeModel("gemini-1.5-pro")
-
-        # Generate explanation using Gemini AI (correct method)
         response = model.generate_content(prompt)
 
-        if response and hasattr(response, "text"):
-            explanation = response.text.strip()
+        explanation = None
+        if response and response.candidates:
+            explanation = response.candidates[0].content.parts[0].text
         else:
             explanation = "AI could not generate an explanation."
 
@@ -111,8 +119,11 @@ def Question_mcqs_generator(input_text, num_questions):
     D) [option D]
     Correct Answer: [correct option]
     """
-    response = model.generate_content(prompt).text.strip()
-    return response
+    response = model.generate_content(prompt)
+
+    if response and response.candidates:
+        return response.candidates[0].content.parts[0].text.strip()
+    return "AI could not generate MCQs."
 
 def save_mcqs_to_file(mcqs):
     txt_filename = "generated_mcqs.txt"
@@ -154,10 +165,10 @@ def generate_mcqs():
             return "No text input provided", 400
 
     try:
-        mcqs = Question_mcqs_generator(text, 25)  # Set to generate 25 questions
+        mcqs = Question_mcqs_generator(text, 25)  # Always 25 questions
         txt_filepath, pdf_filepath = save_mcqs_to_file(mcqs)
 
-        doc_ref = db.collection('mcq_results').add({
+        db.collection('mcq_results').add({
             'mcqs': mcqs,
             'num_questions': 25,
             'txt_file': txt_filepath,
@@ -188,21 +199,26 @@ def chatbot():
         if not question:
             return jsonify({"error": "Missing question"}), 400
 
-        # General purpose chat prompt if no answer given
         if not correct_answer or correct_answer == "N/A":
             prompt = f"Answer the following question in simple terms:\n{question}"
         else:
             prompt = f"Explain why the correct answer to the following question is '{correct_answer}':\n{question}\nProvide a clear explanation."
 
         response = model.generate_content(prompt)
-        explanation = response.text.strip() if hasattr(response, "text") else "AI couldn't respond."
+
+        explanation = None
+        if response and response.candidates:
+            explanation = response.candidates[0].content.parts[0].text
+        else:
+            explanation = "AI couldn't respond."
 
         return jsonify({"explanation": explanation}), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
-
+# -----------------------------
+# Main entry
+# -----------------------------
 if __name__ == "__main__":
     app.run(debug=True, host='0.0.0.0')
